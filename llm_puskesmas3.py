@@ -10,6 +10,8 @@ from langchain_community.document_compressors import JinaRerank
 from langchain.retrievers import ContextualCompressionRetriever
 from fuzzywuzzy import fuzz
 from typing import List
+from langchain.prompts import PromptTemplate
+from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 
 # === Load ENV ===
 from dotenv import load_dotenv
@@ -196,12 +198,34 @@ llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
 )
 
+prompt_template = PromptTemplate.from_template("""
+                                               Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
+                                               Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
+                                               
+                                               Jika pertanyaannya berkaitan dengan jam layanan, sebutkan hari dan jam bukanya.
+                                               Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
+                                               
+                                               Pertanyaan: {question}
+                                               
+                                               Informasi yang relevan:
+                                               {context}
+                                               
+                                               Jawaban:
+                                               """)
+
 # === QA Chain ===
+# qa_chain = RetrievalQA.from_chain_type(
+#     llm=llm,  # Ganti jika pakai Llama3 via Groq/langchain-groq
+#     retriever=custom_retriever,
+#     return_source_documents=False
+# )
+
 qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,  # Ganti jika pakai Llama3 via Groq/langchain-groq
-    retriever=custom_retriever,
-    return_source_documents=False
-)
+        llm=llm,
+        retriever=custom_retriever,
+        chain_type="stuff",
+        chain_type_kwargs={"prompt": prompt_template}
+    )
 
 
 # === Uji Coba Chat ===
