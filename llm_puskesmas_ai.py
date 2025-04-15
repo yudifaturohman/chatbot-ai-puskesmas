@@ -26,6 +26,7 @@ alias_map = {
     "Ruang Bersalin": ["bersalin", "melahirkan", "lahiran", "ruang bersalin"],
     "Rawat Jalan": ["rawat jalan", "poli umum", "pelayanan umum", "pemeriksaan umum"],
     "Pelayanan Gigi dan Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
+    "Pelayanan Gigi & Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
     "Pelayanan Kesehatan Jiwa": ["jiwa", "mental", "kejiwaan", "gangguan jiwa", "psikolog"],
     "Pelayanan Kesehatan Ibu & Anak (KIA)": ["kia", "ibu dan anak", "kesehatan ibu", "bayi", "balita", "imunisasi", "posyandu"],
     "Pelayanan KB": ["kb", "keluarga berencana", "kontrasepsi", "suntik kb", "pil kb", "spiral"],
@@ -212,13 +213,6 @@ prompt_template = PromptTemplate.from_template("""
                                                
                                                Jawaban:
                                                """)
-
-# === QA Chain ===
-# qa_chain = RetrievalQA.from_chain_type(
-#     llm=llm,  # Ganti jika pakai Llama3 via Groq/langchain-groq
-#     retriever=custom_retriever,
-#     return_source_documents=False
-# )
 
 qa_chain = RetrievalQA.from_chain_type(
         llm=llm,
