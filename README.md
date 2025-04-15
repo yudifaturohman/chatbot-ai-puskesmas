@@ -39,8 +39,8 @@ This project uses *LangChain* and *Large Language Model (LLM)* frameworks to ans
 
 1. Clone the repository and navigate to the project directory.
    ```sh
-   git clone https://github.com/yudifaturohman/summary-news-steel.git
-   cd summary-news-steel
+   git clone https://github.com/yudifaturohman/chatbot-ai-puskesmas.git
+   cd chatbot-ai-puskesmas
    ```
 2. Create environment project.
    ```sh
