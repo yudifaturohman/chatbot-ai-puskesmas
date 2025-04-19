@@ -4,14 +4,19 @@ from langchain.schema import BaseRetriever
 from langchain.schema.document import Document
 from langchain.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-from langchain.chains import RetrievalQA
 from langchain_groq import ChatGroq
 from langchain_community.document_compressors import JinaRerank
 from langchain.retrievers import ContextualCompressionRetriever
 from fuzzywuzzy import fuzz
 from typing import List
-from langchain.prompts import PromptTemplate
-from langchain.chains.qa_with_sources import load_qa_with_sources_chain
+from langchain_community.chat_message_histories import (
+    PostgresChatMessageHistory,
+)
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.chat_history import BaseChatMessageHistory
 
 # === Load ENV ===
 from dotenv import load_dotenv
@@ -199,33 +204,78 @@ llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
 )
 
-prompt_template = PromptTemplate.from_template("""
-                                               Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
-                                               Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
-                                               
-                                               Jika pertanyaannya berkaitan dengan jam layanan, sebutkan hari dan jam bukanya.
-                                               Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
-                                               
-                                               Pertanyaan: {question}
-                                               
-                                               Informasi yang relevan:
-                                               {context}
-                                               
-                                               Jawaban:
-                                               """)
+contextualize_q_system_prompt = (
+    "Given a chat history and the latest user question which might reference context in the chat history, "
+    "formulate a standalone question that can be understood without the chat history. "
+    "You must not introduce any new information or make assumptions beyond what the user already said. "
+    "Only rewrite the question using the existing words and references. "
+    "Do NOT answer the question, just reformulate it if needed and otherwise return it as is."
+)
 
-qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=custom_retriever,
-        chain_type="stuff",
-        chain_type_kwargs={"prompt": prompt_template}
+contextualize_q_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", contextualize_q_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ]
+)
+
+history_aware_retriever = create_history_aware_retriever(
+    llm, custom_retriever, contextualize_q_prompt
+)
+
+prompt_template = ("""
+            Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
+            Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
+
+            Gunakan hanya informasi yang relevan yang diberikan dalam bagian "Informasi yang relevan".
+            Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
+
+            Jika pertanyaannya berkaitan dengan jam layanan, sebutkan hari dan jam bukanya berdasarkan informasi yang tersedia.
+            Jangan pernah membuat jawaban berdasarkan asumsi atau informasi yang tidak ada dalam konteks.
+
+            Pertanyaan: 
+            {input}
+
+            Informasi yang relevan:
+            {context}
+
+            Jawaban:
+            """)
+
+qa_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", prompt_template),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ]
+)
+
+question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+
+rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+
+# === Inisialisasi Chat History ===
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    return PostgresChatMessageHistory(
+        session_id=session_id,
+        connection_string=os.getenv("POSTGRES_CONNECTION_STRING"),
+        table_name="message_store",
     )
 
+# === Inisialisasi Conversational Chain ===
+conversational_rag_chain = RunnableWithMessageHistory(
+    rag_chain,
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="chat_history",
+    output_messages_key="answer",
+)
 
 # === Uji Coba Chat ===
 while True:
     user_input = input("🗣️ Pertanyaan: ")
     if user_input.lower() in ["exit", "quit"]:
         break
-    result = qa_chain.run(user_input)
-    print("🤖 Jawaban:", result)
+    result = conversational_rag_chain.invoke({ "input": user_input}, {'configurable': {'session_id': 'test_session_123'}})
+    print("🤖 Jawaban:", result['answer'])
