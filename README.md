@@ -70,6 +70,7 @@ This project uses *LangChain* and *Large Language Model (LLM)* frameworks to ans
     CHROMA_DIR=your_directory_name
     JINA_API_KEY=your_api_key
     GROQ_API_KEY=your_api_key
+    POSTGRES_CONNECTION_STRING="postgresql://your_username:your_password@localhost/your_database_name"
    ```
 
 ## Running the Application
@@ -92,6 +93,6 @@ python scraping.py
 - [x] Ranking RAG
 - [x] Custom Retriever
 - [x] Chat with Prompting
-- [ ] Chat Memory with Postgree SQL
+- [x] Chat Memory with Postgree SQL
 - [ ] Integration with WhatsApp
 - [ ] Tool Agent for Create Ticket
