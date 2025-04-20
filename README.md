@@ -80,10 +80,12 @@ This project uses *LangChain* and *Large Language Model (LLM)* frameworks to ans
 ```sh
 uvicorn main:app --reload
 ```
->Example Send POST request to <code>chat/</code>: 
+>Example Send POST request to <code>chat/</code>:
+```sh
 curl -X POST "http://127.0.0.1:8000/chat" \
   -H "Content-Type: application/json" \
   -d '{"query": "Jam layanan gigi di Puskesmas Bandung?", "session_id": "user123"}'
+```
 
 2. Running scrape script
 
