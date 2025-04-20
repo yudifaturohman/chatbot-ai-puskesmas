@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dotenv import load_dotenv
 
 from langchain.schema import BaseRetriever
@@ -18,19 +18,6 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory
 
-# ===== CONFIG MODULE =====
-def load_environment():
-    """Load environment variables from .env file"""
-    load_dotenv()
-    return {
-        "huggingface_api_key": os.getenv("HUGGINGFACE_API_KEY"),
-        "jina_api_key": os.getenv("JINA_API_KEY"),
-        "groq_api_key": os.getenv("GROQ_API_KEY"),
-        "chroma_dir": os.getenv("CHROMA_DIR"),
-        "postgres_connection_string": os.getenv("POSTGRES_CONNECTION_STRING"),
-    }
-
-# ===== DATA MODULE =====
 def load_data(file_path: str) -> pd.DataFrame:
     """Load and preprocess data from CSV file"""
     df = pd.read_csv(file_path)
@@ -74,7 +61,6 @@ def create_documents_from_df(df: pd.DataFrame) -> List[Document]:
         for _, row in df.iterrows()
     ]
 
-# ===== VECTOR STORE MODULE =====
 def initialize_embeddings(api_key: str) -> HuggingFaceInferenceAPIEmbeddings:
     """Initialize embeddings model"""
     return HuggingFaceInferenceAPIEmbeddings(
@@ -82,26 +68,6 @@ def initialize_embeddings(api_key: str) -> HuggingFaceInferenceAPIEmbeddings:
         model_name="sentence-transformers/all-mpnet-base-v2"
     )
 
-def setup_vector_store(chroma_dir: str, documents: List[Document], embeddings) -> Chroma:
-    """Set up vector store with documents"""
-    if not os.path.exists(chroma_dir):
-        os.makedirs(chroma_dir)
-        db = Chroma(
-            collection_name="layanan_puskesmas",
-            persist_directory=chroma_dir,
-            embedding_function=embeddings,
-        )
-        db.add_documents(documents)
-        db.persist()
-    else:
-        db = Chroma(
-            collection_name="layanan_puskesmas",
-            persist_directory=chroma_dir, 
-            embedding_function=embeddings
-        )
-    return db
-
-# ===== RETRIEVER MODULE =====
 def setup_compression_retriever(retriever, jina_api_key: str) -> ContextualCompressionRetriever:
     """Set up compression retriever with reranking"""
     compressor = JinaRerank(
@@ -161,21 +127,6 @@ class PuskesmasKeywordRetriever(BaseRetriever):
         keywords = ["jam", "jadwal", "hari", "buka", "tutup", "operasional"]
         return any(k in query.lower() for k in keywords)
 
-    def detect_query_type(self, query: str) -> str:
-        """Detect the type of query"""
-        query = query.strip().lower()
-
-        if any(word in query for word in ['jam', 'jadwal', 'hari', 'buka', 'tutup', 'operasional']):
-            return "jam"
-        elif any(word in query for word in ['telepon', 'telpon', 'hp', 'nomor', 'kontak', 'nomor telpon']):
-            return "telepon"
-        elif "whatsapp" in query or "wa" in query:
-            return "whatsapp"
-        elif "layanan" in query or "ada layanan apa" in query or "punya layanan apa":
-            return "nama_layanan"
-        else:
-            return "umum"
-
     def get_relevant_documents(self, query: str) -> List[Document]:
         """Get relevant documents based on the query"""
         layanan_list, puskesmas = self.get_filter_from_query(query)
@@ -207,7 +158,6 @@ class PuskesmasKeywordRetriever(BaseRetriever):
 
         return self._fallback_retriever.get_relevant_documents(query)
 
-# ===== LLM MODULE =====
 def initialize_llm(groq_api_key: str) -> ChatGroq:
     """Initialize the LLM model"""
     return ChatGroq(
@@ -218,7 +168,6 @@ def initialize_llm(groq_api_key: str) -> ChatGroq:
         api_key=groq_api_key,
     )
 
-# ===== PROMPT MODULE =====
 def create_contextualize_prompt() -> ChatPromptTemplate:
     """Create prompt for contextualizing questions"""
     contextualize_q_system_prompt = (
@@ -266,7 +215,6 @@ def create_qa_prompt() -> ChatPromptTemplate:
         ]
     )
 
-# ===== CHAIN MODULE =====
 def setup_rag_chain(llm, retriever):
     """Set up the RAG chain with conversation history"""
     contextualize_q_prompt = create_contextualize_prompt()
@@ -281,7 +229,6 @@ def setup_rag_chain(llm, retriever):
     rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
     return rag_chain
 
-# ===== CHAT HISTORY MODULE =====
 def get_session_history(session_id: str, connection_string: str) -> BaseChatMessageHistory:
     """Get chat history for a session"""
     return PostgresChatMessageHistory(
@@ -302,45 +249,3 @@ def setup_conversational_chain(rag_chain, postgres_connection_string: str):
         history_messages_key="chat_history",
         output_messages_key="answer",
     )
-
-# ===== MAIN APPLICATION =====
-def main():
-    """Main function to run the assistant"""
-    # Load environment and configurations
-    env_vars = load_environment()
-    
-    # Load and prepare data
-    df = load_data("data_semua_puskesmas.csv")
-    alias_map = create_alias_map()
-    documents = create_documents_from_df(df)
-    
-    # Set up vector store
-    embeddings = initialize_embeddings(env_vars["huggingface_api_key"])
-    db = setup_vector_store(env_vars["chroma_dir"], documents, embeddings)
-    
-    # Set up retriever
-    base_retriever = db.as_retriever(search_kwargs={'k': 10})
-    compression_retriever = setup_compression_retriever(base_retriever, env_vars["jina_api_key"])
-    custom_retriever = PuskesmasKeywordRetriever(df, alias_map, compression_retriever)
-    
-    # Set up LLM and RAG chain
-    llm = initialize_llm(env_vars["groq_api_key"])
-    rag_chain = setup_rag_chain(llm, custom_retriever)
-    
-    # Set up conversational chain
-    conversational_rag_chain = setup_conversational_chain(rag_chain, env_vars["postgres_connection_string"])
-    
-    # Run interactive chat loop
-    print("🤖 Asisten Puskesmas siap melayani. Ketik 'exit' atau 'quit' untuk keluar.")
-    while True:
-        user_input = input("\n🗣️ Pertanyaan: ")
-        if user_input.lower() in ["exit", "quit"]:
-            break
-        result = conversational_rag_chain.invoke(
-            {"input": user_input}, 
-            {'configurable': {'session_id': 'test_session_123'}}
-        )
-        print("\n🤖 Jawaban:", result['answer'])
-
-if __name__ == "__main__":
-    main()
