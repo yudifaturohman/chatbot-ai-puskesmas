@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+from datetime import datetime
 
 from langchain.schema import BaseRetriever
 from langchain.schema.document import Document
@@ -186,11 +187,25 @@ def create_contextualize_prompt() -> ChatPromptTemplate:
         ]
     )
 
+def get_current_time():
+    now = datetime.now().hour
+
+    if 5 <= now < 12:
+        return "Selamat pagi!"
+    elif 12 <= now < 15:
+        return "Selamat siang!"
+    elif 15 <= now < 18:
+        return "Selamat sore!"
+    else:
+        return "Selamat malam!"
+
 def create_qa_prompt() -> ChatPromptTemplate:
     """Create prompt for QA chain"""
     prompt_template = """
         Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
         Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
+
+        Berikan sapaan pertama kali yang sesuai dengan Waktu saat ini {current_time}.
 
         Gunakan hanya informasi yang relevan yang diberikan dalam bagian "Informasi yang relevan".
         Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
@@ -206,6 +221,12 @@ def create_qa_prompt() -> ChatPromptTemplate:
 
         Jawaban:
         """
+    
+    prompt_template = prompt_template.format(
+        current_time=get_current_time(),
+        input="{input}",
+        context="{context}"
+    )
 
     return ChatPromptTemplate.from_messages(
         [
