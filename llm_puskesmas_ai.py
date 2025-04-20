@@ -1,5 +1,8 @@
 import os
 import pandas as pd
+from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+
 from langchain.schema import BaseRetriever
 from langchain.schema.document import Document
 from langchain.vectorstores import Chroma
@@ -8,132 +11,130 @@ from langchain_groq import ChatGroq
 from langchain_community.document_compressors import JinaRerank
 from langchain.retrievers import ContextualCompressionRetriever
 from fuzzywuzzy import fuzz
-from typing import List
-from langchain_community.chat_message_histories import (
-    PostgresChatMessageHistory,
-)
+from langchain_community.chat_message_histories import PostgresChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory
 
-# === Load ENV ===
-from dotenv import load_dotenv
-load_dotenv()
+# ===== CONFIG MODULE =====
+def load_environment():
+    """Load environment variables from .env file"""
+    load_dotenv()
+    return {
+        "huggingface_api_key": os.getenv("HUGGINGFACE_API_KEY"),
+        "jina_api_key": os.getenv("JINA_API_KEY"),
+        "groq_api_key": os.getenv("GROQ_API_KEY"),
+        "chroma_dir": os.getenv("CHROMA_DIR"),
+        "postgres_connection_string": os.getenv("POSTGRES_CONNECTION_STRING"),
+    }
 
-# === Load CSV ===
-df = pd.read_csv("data_semua_puskesmas.csv")
+# ===== DATA MODULE =====
+def load_data(file_path: str) -> pd.DataFrame:
+    """Load and preprocess data from CSV file"""
+    df = pd.read_csv(file_path)
+    df['nama_layanan'] = df['nama_layanan'].str.strip().str.lower()
+    df['nama_puskesmas'] = df['nama_puskesmas'].str.strip().str.lower()
+    return df
 
-# === Alias Layanan ===
-alias_map = {
-    "UGD": ["unit gawat darurat", "gawat darurat", "darurat", "igd", "emergensi", "emergency", "ugd"],
-    "Ruang Bersalin": ["bersalin", "melahirkan", "lahiran", "ruang bersalin"],
-    "Rawat Jalan": ["rawat jalan", "poli umum", "pelayanan umum", "pemeriksaan umum"],
-    "Pelayanan Gigi dan Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
-    "Pelayanan Gigi & Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
-    "Pelayanan Kesehatan Jiwa": ["jiwa", "mental", "kejiwaan", "gangguan jiwa", "psikolog"],
-    "Pelayanan Kesehatan Ibu & Anak (KIA)": ["kia", "ibu dan anak", "kesehatan ibu", "bayi", "balita", "imunisasi", "posyandu"],
-    "Pelayanan KB": ["kb", "keluarga berencana", "kontrasepsi", "suntik kb", "pil kb", "spiral"],
-    "Persalinan": ["persalinan", "proses melahirkan", "melahirkan", "lahiran"],
-    "Pelayanan Balita, Anak & Remaja": ["balita", "anak", "remaja", "anak-anak", "tumbuh kembang"],
-    "Klaster 3 Dewasa dan Lansia": ["dewasa", "lansia", "manula", "orang tua", "pemeriksaan lansia"],
-    "Klaster 2 Ibu Hamil dan Nifas": ["ibu hamil", "nifas", "pemeriksaan kehamilan", "pasca melahirkan"],
-    "TB Paru": ["tb paru", "tbc", "tb", "tuberkulosis", "paru-paru", "batuk lama"],
-    "IMS & Kusta": ["ims", "infeksi menular seksual", "kusta", "lepra", "penyakit kulit menular"],
-    "HIV & IMS": ["hiv", "aids", "ims", "penyakit menular seksual"],
-    "Pelayanan Poli TB - Paru": ["poli tb", "tb paru", "tbc", "poli paru-paru"],
-    "UGD & Persalinan": ["ugd dan persalinan", "emergency lahiran", "darurat melahirkan"],
-    "Pelayanan Umum": ["umum", "periksa umum", "rawat jalan", "pemeriksaan biasa"],
-}
+def create_alias_map() -> Dict[str, List[str]]:
+    """Create a mapping of service aliases"""
+    return {
+        "UGD": ["unit gawat darurat", "gawat darurat", "darurat", "igd", "emergensi", "emergency", "ugd"],
+        "Ruang Bersalin": ["bersalin", "melahirkan", "lahiran", "ruang bersalin"],
+        "Rawat Jalan": ["rawat jalan", "poli umum", "pelayanan umum", "pemeriksaan umum"],
+        "Pelayanan Gigi dan Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
+        "Pelayanan Gigi & Mulut": ["gigi", "mulut", "dokter gigi", "periksa gigi", "poli gigi"],
+        "Pelayanan Kesehatan Jiwa": ["jiwa", "mental", "kejiwaan", "gangguan jiwa", "psikolog"],
+        "Pelayanan Kesehatan Ibu & Anak (KIA)": ["kia", "ibu dan anak", "kesehatan ibu", "bayi", "balita", "imunisasi", "posyandu"],
+        "Pelayanan KB": ["kb", "keluarga berencana", "kontrasepsi", "suntik kb", "pil kb", "spiral"],
+        "Persalinan": ["persalinan", "proses melahirkan", "melahirkan", "lahiran"],
+        "Pelayanan Balita, Anak & Remaja": ["balita", "anak", "remaja", "anak-anak", "tumbuh kembang"],
+        "Klaster 3 Dewasa dan Lansia": ["dewasa", "lansia", "manula", "orang tua", "pemeriksaan lansia"],
+        "Klaster 2 Ibu Hamil dan Nifas": ["ibu hamil", "nifas", "pemeriksaan kehamilan", "pasca melahirkan"],
+        "TB Paru": ["tb paru", "tbc", "tb", "tuberkulosis", "paru-paru", "batuk lama"],
+        "IMS & Kusta": ["ims", "infeksi menular seksual", "kusta", "lepra", "penyakit kulit menular"],
+        "HIV & IMS": ["hiv", "aids", "ims", "penyakit menular seksual"],
+        "Pelayanan Poli TB - Paru": ["poli tb", "tb paru", "tbc", "poli paru-paru"],
+        "UGD & Persalinan": ["ugd dan persalinan", "emergency lahiran", "darurat melahirkan"],
+        "Pelayanan Umum": ["umum", "periksa umum", "rawat jalan", "pemeriksaan biasa"],
+    }
 
-layanan_list = df['nama_layanan'] = df['nama_layanan'].str.strip().str.lower()
-puskesmas_list = df['nama_puskesmas'] = df['nama_puskesmas'].str.strip().str.lower()
-
-# === Embedding dan VectorStore ===
-documents = [
-    Document(
-        page_content=(
-            f"{row['nama_puskesmas']} menyediakan layanan {row['nama_layanan']} "
-            f"pada hari {row['hari']} jam {row['jam']}. "
-            f"Telepon: {row['telepon']}, WhatsApp: {row['whatsapp']}."
+def create_documents_from_df(df: pd.DataFrame) -> List[Document]:
+    """Create document objects from dataframe"""
+    return [
+        Document(
+            page_content=(
+                f"{row['nama_puskesmas']} menyediakan layanan {row['nama_layanan']} "
+                f"pada hari {row['hari']} jam {row['jam']}. "
+                f"Telepon: {row['telepon']}, WhatsApp: {row['whatsapp']}."
+            )
         )
-    )
-    for _, row in df.iterrows()
-]
+        for _, row in df.iterrows()
+    ]
 
-embeddings = HuggingFaceInferenceAPIEmbeddings(
-    api_key=os.getenv("HUGGINGFACE_API_KEY"), model_name="sentence-transformers/all-mpnet-base-v2"
-)
-
-if not os.path.exists(os.getenv("CHROMA_DIR")):
-    os.makedirs(os.getenv("CHROMA_DIR"))
-    db = Chroma(
-        collection_name="layanan_puskesmas",
-        persist_directory=os.getenv("CHROMA_DIR"),
-        embedding_function=embeddings,
+# ===== VECTOR STORE MODULE =====
+def initialize_embeddings(api_key: str) -> HuggingFaceInferenceAPIEmbeddings:
+    """Initialize embeddings model"""
+    return HuggingFaceInferenceAPIEmbeddings(
+        api_key=api_key, 
+        model_name="sentence-transformers/all-mpnet-base-v2"
     )
 
-    db.add_documents(documents)
-    db.persist()
+def setup_vector_store(chroma_dir: str, documents: List[Document], embeddings) -> Chroma:
+    """Set up vector store with documents"""
+    if not os.path.exists(chroma_dir):
+        os.makedirs(chroma_dir)
+        db = Chroma(
+            collection_name="layanan_puskesmas",
+            persist_directory=chroma_dir,
+            embedding_function=embeddings,
+        )
+        db.add_documents(documents)
+        db.persist()
+    else:
+        db = Chroma(
+            collection_name="layanan_puskesmas",
+            persist_directory=chroma_dir, 
+            embedding_function=embeddings
+        )
+    return db
 
-else:
-    db = Chroma(os.getenv("CHROMA_DIR"), embedding_function=embeddings)
-
-    retriever = db.as_retriever(search_kwargs={'k': 10})
-    
+# ===== RETRIEVER MODULE =====
+def setup_compression_retriever(retriever, jina_api_key: str) -> ContextualCompressionRetriever:
+    """Set up compression retriever with reranking"""
     compressor = JinaRerank(
-        jina_api_key=os.getenv("JINA_API_KEY"),
+        jina_api_key=jina_api_key,
         top_n=5,
         model="jina-reranker-v2-base-multilingual",
     )
-
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=compressor, base_retriever=retriever
+    return ContextualCompressionRetriever(
+        base_compressor=compressor, 
+        base_retriever=retriever
     )
 
-# === Fungsi Deteksi Jam Layanan ===
-def is_jam_layanan_query(query: str) -> bool:
-    keywords = ["jam", "jadwal", "hari", "buka", "tutup", "operasional"]
-    return any(k in query.lower() for k in keywords)
-
-def detect_query_type(query: str) -> str:
-    query = query.strip().lower()
-
-    if any(word in query for word in ['jam', 'jadwal', 'hari', 'buka', 'tutup', 'operasional']):
-        return "jam"
-
-    elif any(word in query for word in ['telepon', 'telpon', 'hp', 'nomor', 'kontak', 'nomor telpon']):
-        return "telepon"
-
-    elif "whatsapp" in query or "wa" in query:
-        return "whatsapp"
-
-    elif "layanan" in query or "ada layanan apa" in query or "punya layanan apa":
-        return "nama_layanan"
-
-    else:
-        return "umum"
-
-
-# === Custom Retriever ===
 class PuskesmasKeywordRetriever(BaseRetriever):
-    def __init__(self, df, layanan_list, alias_map, fallback_retriever):
+    """Custom retriever for keyword-based retrieval of Puskesmas information"""
+    
+    def __init__(self, df: pd.DataFrame, alias_map: Dict[str, List[str]], fallback_retriever):
         super().__init__()
         self._df = df
-        self._layanan_list = layanan_list
+        self._layanan_list = df['nama_layanan'].unique().tolist()
         self._alias_map = alias_map
         self._fallback_retriever = fallback_retriever
         self._puskesmas_list = df['nama_puskesmas'].unique().tolist()
 
-    def get_layanan_list_from_query(self, query: str):
+    def get_layanan_list_from_query(self, query: str) -> List[str]:
+        """Extract service names from query using direct and fuzzy matching"""
         query = query.lower()
         layanan_terdeteksi = []
 
         # Alias direct match
-        for alias, real_name in self._alias_map.items():
-            if alias in query and real_name not in layanan_terdeteksi:
-                layanan_terdeteksi.append(real_name)
+        for alias, synonyms in self._alias_map.items():
+            for synonym in synonyms:
+                if synonym in query and alias.lower() not in layanan_terdeteksi:
+                    layanan_terdeteksi.append(alias.lower())
 
         # Fuzzy matching
         for layanan in self._layanan_list:
@@ -143,8 +144,8 @@ class PuskesmasKeywordRetriever(BaseRetriever):
 
         return layanan_terdeteksi
 
-
-    def get_filter_from_query(self, query: str):
+    def get_filter_from_query(self, query: str) -> tuple:
+        """Extract service and puskesmas filters from query"""
         layanan_list = self.get_layanan_list_from_query(query)
         matched_puskesmas = None
 
@@ -155,10 +156,30 @@ class PuskesmasKeywordRetriever(BaseRetriever):
 
         return layanan_list, matched_puskesmas
 
+    def is_jam_layanan_query(self, query: str) -> bool:
+        """Detect if query is about service hours"""
+        keywords = ["jam", "jadwal", "hari", "buka", "tutup", "operasional"]
+        return any(k in query.lower() for k in keywords)
+
+    def detect_query_type(self, query: str) -> str:
+        """Detect the type of query"""
+        query = query.strip().lower()
+
+        if any(word in query for word in ['jam', 'jadwal', 'hari', 'buka', 'tutup', 'operasional']):
+            return "jam"
+        elif any(word in query for word in ['telepon', 'telpon', 'hp', 'nomor', 'kontak', 'nomor telpon']):
+            return "telepon"
+        elif "whatsapp" in query or "wa" in query:
+            return "whatsapp"
+        elif "layanan" in query or "ada layanan apa" in query or "punya layanan apa":
+            return "nama_layanan"
+        else:
+            return "umum"
 
     def get_relevant_documents(self, query: str) -> List[Document]:
+        """Get relevant documents based on the query"""
         layanan_list, puskesmas = self.get_filter_from_query(query)
-        is_jam_query = is_jam_layanan_query(query)
+        is_jam_query = self.is_jam_layanan_query(query)
 
         df_filtered = self._df
         if puskesmas:
@@ -186,96 +207,140 @@ class PuskesmasKeywordRetriever(BaseRetriever):
 
         return self._fallback_retriever.get_relevant_documents(query)
 
+# ===== LLM MODULE =====
+def initialize_llm(groq_api_key: str) -> ChatGroq:
+    """Initialize the LLM model"""
+    return ChatGroq(
+        model="llama-3.1-8b-instant",
+        temperature=0,
+        max_tokens=512,
+        timeout=None,
+        api_key=groq_api_key,
+    )
 
+# ===== PROMPT MODULE =====
+def create_contextualize_prompt() -> ChatPromptTemplate:
+    """Create prompt for contextualizing questions"""
+    contextualize_q_system_prompt = (
+        "Given a chat history and the latest user question which might reference context in the chat history, "
+        "formulate a standalone question that can be understood without the chat history. "
+        "You must not introduce any new information or make assumptions beyond what the user already said. "
+        "Only rewrite the question using the existing words and references. "
+        "Do NOT answer the question, just reformulate it if needed and otherwise return it as is."
+    )
 
-# === Inisialisasi Custom Retriever ===
-custom_retriever = PuskesmasKeywordRetriever(
-    df=df,
-    layanan_list=layanan_list,
-    alias_map=alias_map,
-    fallback_retriever=compression_retriever,
-)
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", contextualize_q_system_prompt),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
 
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0,
-    max_tokens=512,
-    timeout=None,
-    api_key=os.getenv("GROQ_API_KEY"),
-)
+def create_qa_prompt() -> ChatPromptTemplate:
+    """Create prompt for QA chain"""
+    prompt_template = """
+        Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
+        Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
 
-contextualize_q_system_prompt = (
-    "Given a chat history and the latest user question which might reference context in the chat history, "
-    "formulate a standalone question that can be understood without the chat history. "
-    "You must not introduce any new information or make assumptions beyond what the user already said. "
-    "Only rewrite the question using the existing words and references. "
-    "Do NOT answer the question, just reformulate it if needed and otherwise return it as is."
-)
+        Gunakan hanya informasi yang relevan yang diberikan dalam bagian "Informasi yang relevan".
+        Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
 
-contextualize_q_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", contextualize_q_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
+        Jika pertanyaannya berkaitan dengan jam layanan, sebutkan hari dan jam bukanya berdasarkan informasi yang tersedia.
+        Jangan pernah membuat jawaban berdasarkan asumsi atau informasi yang tidak ada dalam konteks.
 
-history_aware_retriever = create_history_aware_retriever(
-    llm, custom_retriever, contextualize_q_prompt
-)
+        Pertanyaan: 
+        {input}
 
-prompt_template = ("""
-            Kamu adalah asisten layanan masyarakat puskesmas yang ramah dan informatif. 
-            Jawablah pertanyaan dari warga dengan jelas, mudah dipahami, dan dalam gaya bahasa yang sederhana.
+        Informasi yang relevan:
+        {context}
 
-            Gunakan hanya informasi yang relevan yang diberikan dalam bagian "Informasi yang relevan".
-            Jika layanan tidak ditemukan, jawab dengan jujur dan arahkan agar mereka bisa menanyakan ulang.
+        Jawaban:
+        """
 
-            Jika pertanyaannya berkaitan dengan jam layanan, sebutkan hari dan jam bukanya berdasarkan informasi yang tersedia.
-            Jangan pernah membuat jawaban berdasarkan asumsi atau informasi yang tidak ada dalam konteks.
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", prompt_template),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
 
-            Pertanyaan: 
-            {input}
+# ===== CHAIN MODULE =====
+def setup_rag_chain(llm, retriever):
+    """Set up the RAG chain with conversation history"""
+    contextualize_q_prompt = create_contextualize_prompt()
+    qa_prompt = create_qa_prompt()
 
-            Informasi yang relevan:
-            {context}
+    history_aware_retriever = create_history_aware_retriever(
+        llm, retriever, contextualize_q_prompt
+    )
 
-            Jawaban:
-            """)
+    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
 
-qa_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", prompt_template),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
+    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+    return rag_chain
 
-question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-
-rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
-
-# === Inisialisasi Chat History ===
-def get_session_history(session_id: str) -> BaseChatMessageHistory:
+# ===== CHAT HISTORY MODULE =====
+def get_session_history(session_id: str, connection_string: str) -> BaseChatMessageHistory:
+    """Get chat history for a session"""
     return PostgresChatMessageHistory(
         session_id=session_id,
-        connection_string=os.getenv("POSTGRES_CONNECTION_STRING"),
+        connection_string=connection_string,
         table_name="message_store",
     )
 
-# === Inisialisasi Conversational Chain ===
-conversational_rag_chain = RunnableWithMessageHistory(
-    rag_chain,
-    get_session_history,
-    input_messages_key="input",
-    history_messages_key="chat_history",
-    output_messages_key="answer",
-)
+def setup_conversational_chain(rag_chain, postgres_connection_string: str):
+    """Set up conversational chain with history"""
+    def get_history_func(session_id: str) -> BaseChatMessageHistory:
+        return get_session_history(session_id, postgres_connection_string)
 
-# === Uji Coba Chat ===
-while True:
-    user_input = input("🗣️ Pertanyaan: ")
-    if user_input.lower() in ["exit", "quit"]:
-        break
-    result = conversational_rag_chain.invoke({ "input": user_input}, {'configurable': {'session_id': 'test_session_123'}})
-    print("🤖 Jawaban:", result['answer'])
+    return RunnableWithMessageHistory(
+        rag_chain,
+        get_history_func,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+        output_messages_key="answer",
+    )
+
+# ===== MAIN APPLICATION =====
+def main():
+    """Main function to run the assistant"""
+    # Load environment and configurations
+    env_vars = load_environment()
+    
+    # Load and prepare data
+    df = load_data("data_semua_puskesmas.csv")
+    alias_map = create_alias_map()
+    documents = create_documents_from_df(df)
+    
+    # Set up vector store
+    embeddings = initialize_embeddings(env_vars["huggingface_api_key"])
+    db = setup_vector_store(env_vars["chroma_dir"], documents, embeddings)
+    
+    # Set up retriever
+    base_retriever = db.as_retriever(search_kwargs={'k': 10})
+    compression_retriever = setup_compression_retriever(base_retriever, env_vars["jina_api_key"])
+    custom_retriever = PuskesmasKeywordRetriever(df, alias_map, compression_retriever)
+    
+    # Set up LLM and RAG chain
+    llm = initialize_llm(env_vars["groq_api_key"])
+    rag_chain = setup_rag_chain(llm, custom_retriever)
+    
+    # Set up conversational chain
+    conversational_rag_chain = setup_conversational_chain(rag_chain, env_vars["postgres_connection_string"])
+    
+    # Run interactive chat loop
+    print("🤖 Asisten Puskesmas siap melayani. Ketik 'exit' atau 'quit' untuk keluar.")
+    while True:
+        user_input = input("\n🗣️ Pertanyaan: ")
+        if user_input.lower() in ["exit", "quit"]:
+            break
+        result = conversational_rag_chain.invoke(
+            {"input": user_input}, 
+            {'configurable': {'session_id': 'test_session_123'}}
+        )
+        print("\n🤖 Jawaban:", result['answer'])
+
+if __name__ == "__main__":
+    main()
