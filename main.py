@@ -3,6 +3,11 @@ from pydantic import BaseModel
 from typing import Dict, Any
 import os
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, Column, Integer, String, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from fastapi.responses import JSONResponse
+
 
 # Import our modular components except setup_vector_store
 from llm_puskesmas_ai import (
@@ -80,6 +85,20 @@ async def startup_event():
         rag_chain, ENV_VARS["postgres_connection_string"]
     )
 
+DATABASE_URL = ENV_VARS["postgres_connection_string"]
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+class MessageStore(Base):
+    __tablename__ = "message_store"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True)
+    message = Column(Text)
+
 # Request model
 class QueryRequest(BaseModel):
     query: str
@@ -111,6 +130,28 @@ async def chat_endpoint(request: QueryRequest):
         return {"answer": result['answer']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+    
+@app.get("/messages/{session_id}")
+async def get_messages_by_session(session_id: str):
+    """
+    Get all messages filtered by session_id from message_store table.
+    """
+    try:
+        db = SessionLocal()
+        messages = db.query(MessageStore).filter(MessageStore.session_id == session_id).all()
+        result = [
+            {
+                "id": msg.id,
+                "session_id": msg.session_id,
+                "message": msg.message
+            }
+            for msg in messages
+        ]
+        db.close()
+        return JSONResponse(content=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch messages for session {session_id}: {str(e)}")
+
 
 # Health check endpoint
 @app.get("/health")
