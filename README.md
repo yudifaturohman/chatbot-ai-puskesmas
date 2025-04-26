@@ -100,5 +100,5 @@ python scraping.py
 - [x] Custom Retriever
 - [x] Chat with Prompting
 - [x] Chat Memory with Postgree SQL
-- [ ] Integration with WhatsApp
+- [x] Integration with Client Frontend
 - [ ] Tool Agent for Create Ticket
