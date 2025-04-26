@@ -3,6 +3,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from langchain.schema import BaseRetriever
 from langchain.schema.document import Document
@@ -188,7 +189,7 @@ def create_contextualize_prompt() -> ChatPromptTemplate:
     )
 
 def get_current_time():
-    now = datetime.now().hour
+    now = datetime.now(ZoneInfo("Asia/Jakarta")).hour
 
     if 5 <= now < 12:
         return "Selamat pagi!"
